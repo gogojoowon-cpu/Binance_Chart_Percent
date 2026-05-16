@@ -5,13 +5,7 @@ from typing import Callable, Optional, TypeVar
 import pandas as pd
 import requests
 from binance.client import Client
-from binance.enums import (
-    ORDER_TYPE_MARKET,
-    ORDER_TYPE_STOP_MARKET,
-    ORDER_TYPE_TAKE_PROFIT_MARKET,
-    SIDE_BUY,
-    SIDE_SELL,
-)
+from binance.enums import SIDE_BUY, SIDE_SELL
 from binance.exceptions import BinanceAPIException, BinanceRequestException
 
 from config import (
@@ -181,7 +175,7 @@ class Binance:
             lambda: self.client.futures_create_order(
                 symbol=SYMBOL,
                 side=order_side,
-                type=ORDER_TYPE_MARKET,
+                type="MARKET",
                 quantity=qty,
                 recvWindow=RECV_WINDOW_MS,
             ),
@@ -192,7 +186,7 @@ class Binance:
             lambda: self.client.futures_create_order(
                 symbol=SYMBOL,
                 side=opp_side,
-                type=ORDER_TYPE_STOP_MARKET,
+                type="STOP_MARKET",
                 stopPrice=self.round_price(sl_price),
                 closePosition=True,
                 timeInForce="GTC",
@@ -205,7 +199,7 @@ class Binance:
             lambda: self.client.futures_create_order(
                 symbol=SYMBOL,
                 side=opp_side,
-                type=ORDER_TYPE_TAKE_PROFIT_MARKET,
+                type="TAKE_PROFIT_MARKET",
                 stopPrice=self.round_price(tp_price),
                 closePosition=True,
                 timeInForce="GTC",
@@ -237,7 +231,7 @@ class Binance:
             lambda: self.client.futures_create_order(
                 symbol=SYMBOL,
                 side=side,
-                type=ORDER_TYPE_MARKET,
+                type="MARKET",
                 quantity=abs(amt),
                 reduceOnly=True,
                 recvWindow=RECV_WINDOW_MS,
