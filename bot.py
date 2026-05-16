@@ -6,6 +6,7 @@ from binance_client import Binance
 from config import (
     DAILY_LOSS_LIMIT,
     DAILY_ROI_TARGET,
+    KLINES_LIMIT,
     LEVERAGE,
     LIVE_TRADING,
     MARGIN_PCT,
@@ -40,7 +41,7 @@ def main() -> None:
     log.info(f"Daily target={DAILY_ROI_TARGET*100:.0f}%  Daily loss cap={DAILY_LOSS_LIMIT*100:.0f}%")
 
     if not LIVE_TRADING:
-        log.warning("DRY RUN MODE — no real orders will be placed. Set LIVE_TRADING=true in .env to enable.")
+        log.warning("DRY RUN MODE — no real orders. Set LIVE_TRADING=true in env to enable.")
 
     api = Binance()
     risk = DailyRiskManager(DAILY_ROI_TARGET, DAILY_LOSS_LIMIT)
@@ -61,7 +62,7 @@ def main() -> None:
                 continue
 
             pos = api.position()
-            if pos:
+            if pos is not None:
                 amt = float(pos["positionAmt"])
                 upnl = float(pos["unRealizedProfit"])
                 log.info(
@@ -70,7 +71,7 @@ def main() -> None:
                 time.sleep(POLL_INTERVAL_SEC)
                 continue
 
-            df = api.klines(limit=100)
+            df = api.klines(limit=KLINES_LIMIT)
             signal = decide(df)
             log.info(
                 f"signal={signal}  equity={equity:.2f}  dayROI={risk.roi(equity)*100:+.2f}%"
@@ -95,6 +96,14 @@ def main() -> None:
                 sl = price * (1 + STOP_LOSS_PCT)
                 tp = price * (1 - TAKE_PROFIT_PCT)
 
+            # Belt-and-suspenders: re-verify no position right before sending the order.
+            # Protects against the "transient API blip → false None" double-entry case.
+            recheck = api.position()
+            if recheck is not None:
+                log.warning("position appeared between check and entry — aborting this entry")
+                time.sleep(POLL_INTERVAL_SEC)
+                continue
+
             log.info(f"OPEN {signal}  qty={qty}  entry≈{price:.2f}  SL={sl:.2f}  TP={tp:.2f}")
 
             if LIVE_TRADING:
@@ -103,6 +112,7 @@ def main() -> None:
             else:
                 log.info("(dry run — order not sent)")
 
+            # Give the API state a moment to reflect the new position.
             time.sleep(POLL_INTERVAL_SEC)
 
         except KeyboardInterrupt:
