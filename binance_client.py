@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 from typing import Callable, Optional, TypeVar
 
@@ -44,6 +45,14 @@ def _is_retryable(exc: Exception) -> bool:
     return False
 
 
+_BAN_RE = re.compile(r"banned until (\d+)")
+
+
+def _ban_until_seconds(exc: Exception) -> Optional[float]:
+    m = _BAN_RE.search(str(exc))
+    return int(m.group(1)) / 1000.0 if m else None
+
+
 def with_retry(fn: Callable[[], T], label: str = "api", max_attempts: int = API_MAX_RETRIES) -> T:
     delay = 1.0
     last_exc: Optional[Exception] = None
@@ -52,6 +61,18 @@ def with_retry(fn: Callable[[], T], label: str = "api", max_attempts: int = API_
             return fn()
         except Exception as e:
             last_exc = e
+
+            # -1003: each new request extends the ban, so sleep through the
+            # whole window before retrying (cap 60 min so a misparsed
+            # timestamp can't hang the bot forever).
+            if isinstance(e, BinanceAPIException) and e.code == -1003:
+                ban_until = _ban_until_seconds(e)
+                if ban_until is not None:
+                    wait = min(max(ban_until - time.time() + 10, 30), 3600)
+                    log.error(f"{label}: -1003 IP banned, sleeping {wait:.0f}s until ban clears")
+                    time.sleep(wait)
+                    continue
+
             if not _is_retryable(e) or attempt == max_attempts:
                 raise
             log.warning(f"{label}: attempt {attempt}/{max_attempts} failed ({e}), retry in {delay:.1f}s")
@@ -69,6 +90,9 @@ class Binance:
         self.price_tick: float = 0.1
         self.qty_step: float = 0.001
         self.min_qty: float = 0.001
+        self._account_cache: Optional[dict] = None
+        self._account_cache_ts: float = 0.0
+        self._account_cache_ttl: float = 5.0
         self._init_account()
 
     def _init_account(self) -> None:
@@ -126,10 +150,16 @@ class Binance:
         )
 
     def _account(self) -> dict:
-        return with_retry(
+        now = time.time()
+        if self._account_cache is not None and (now - self._account_cache_ts) < self._account_cache_ttl:
+            return self._account_cache
+        data = with_retry(
             lambda: self.client.futures_account(recvWindow=RECV_WINDOW_MS),
             "futures_account",
         )
+        self._account_cache = data
+        self._account_cache_ts = now
+        return data
 
     def equity_usdt(self) -> float:
         return float(self._account()["totalWalletBalance"])
