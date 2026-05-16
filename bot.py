@@ -1,6 +1,8 @@
 import logging
+import os
 import sys
 import time
+from urllib.parse import urlparse
 
 from binance_client import Binance
 from config import (
@@ -43,6 +45,18 @@ def main() -> None:
     log.info(f"Symbol={SYMBOL}  Leverage={LEVERAGE}x  Margin per entry={MARGIN_PCT*100:.0f}%")
     log.info(f"SL=ATR*{ATR_SL_MULT} (floor {MIN_SL_PCT*100:.2f}%, cap {MAX_SL_PCT*100:.2f}%)  TP=ATR*{ATR_TP_MULT}  R:R=1:{ATR_TP_MULT/ATR_SL_MULT:.1f}")
     log.info(f"Daily target={DAILY_ROI_TARGET*100:.0f}%  Daily loss cap={DAILY_LOSS_LIMIT*100:.0f}%")
+
+    proxy = os.getenv("HTTPS_PROXY") or os.getenv("https_proxy")
+    if proxy:
+        try:
+            u = urlparse(proxy)
+            host = u.hostname or "?"
+            port = f":{u.port}" if u.port else ""
+            log.info(f"HTTPS proxy: {u.scheme}://{host}{port} (creds hidden)")
+        except Exception:
+            log.info("HTTPS proxy: set (unparseable)")
+    else:
+        log.info("HTTPS proxy: none (direct connection)")
 
     if not LIVE_TRADING:
         log.warning("DRY RUN MODE — no real orders. Set LIVE_TRADING=true in env to enable.")
